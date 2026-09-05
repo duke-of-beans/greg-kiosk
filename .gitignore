@@ -1,0 +1,10 @@
+build/
+*.apk
+stdout.txt
+stderr.txt
+inst.txt
+dev.txt
+redirect.html
+adb-devices.bat
+update-skylight.bat
+set-skylight-redirect.bat
