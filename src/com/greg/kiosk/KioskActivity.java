@@ -16,6 +16,7 @@ import android.provider.Settings;
 import android.print.PrintManager;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
+import android.webkit.PermissionRequest;
 
 public class KioskActivity extends Activity {
     private WebView webView;
@@ -152,7 +153,17 @@ public class KioskActivity extends Activity {
                 }, 2000);
             }
         });
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                // Auto-grant camera and microphone permissions for getUserMedia
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        request.grant(request.getResources());
+                    }
+                });
+            }
+        });
 
         try {
             Runtime.getRuntime().exec(new String[]{
