@@ -5,17 +5,24 @@ SET PLATFORM=%SDK%\platforms\android-35\android.jar
 SET JAVAC="C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot\bin\javac.exe"
 SET SRC=D:\Tools\greg-kiosk
 SET OUT=%SRC%\build
+SET CLS=%OUT%\classes\com\greg\kiosk
 
 if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%\classes"
 
 echo === COMPILING ===
-%JAVAC% -source 1.8 -target 1.8 -classpath "%PLATFORM%" -d "%OUT%\classes" "%SRC%\src\com\greg\kiosk\KioskActivity.java" "%SRC%\src\com\greg\kiosk\BootReceiver.java" 2>&1
+%JAVAC% -source 1.8 -target 1.8 -classpath "%PLATFORM%" -d "%OUT%\classes" "%SRC%\src\com\greg\kiosk\KioskActivity.java" "%SRC%\src\com\greg\kiosk\BootReceiver.java" "%SRC%\src\com\greg\kiosk\FloatingHomeService.java" 2>&1
+
+echo === LISTING CLASSES ===
+dir /b /s "%OUT%\classes\*.class"
 
 echo === DEXING ===
-echo Listing classes:
-dir /b /s "%OUT%\classes\*.class"
-call "%BT%\d8.bat" --output "%OUT%" --lib "%PLATFORM%" "%OUT%\classes\com\greg\kiosk\KioskActivity.class" "%OUT%\classes\com\greg\kiosk\KioskActivity$1.class" "%OUT%\classes\com\greg\kiosk\KioskActivity$1$1.class" "%OUT%\classes\com\greg\kiosk\KioskActivity$2.class" "%OUT%\classes\com\greg\kiosk\BootReceiver.class" 2>&1
+REM Pass all class files using a for loop to build the command
+setlocal enabledelayedexpansion
+set "FILES="
+for /r "%OUT%\classes" %%f in (*.class) do set "FILES=!FILES! "%%f""
+call "%BT%\d8.bat" --output "%OUT%" --lib "%PLATFORM%" !FILES! 2>&1
+endlocal
 
 echo === PACKAGING ===
 "%BT%\aapt2.exe" link -o "%OUT%\greg-kiosk-unsigned.apk" --manifest "%SRC%\AndroidManifest.xml" -I "%PLATFORM%" --min-sdk-version 28 --target-sdk-version 28 2>&1
