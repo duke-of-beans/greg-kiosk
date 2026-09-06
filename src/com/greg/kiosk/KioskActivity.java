@@ -13,6 +13,9 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.provider.Settings;
+import android.print.PrintManager;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
 
 public class KioskActivity extends Activity {
     private WebView webView;
@@ -67,10 +70,39 @@ public class KioskActivity extends Activity {
 
         @JavascriptInterface
         public void sendKey(int keyCode) {
-            // Volume and other key events
             try {
                 Runtime.getRuntime().exec(new String[]{"input", "keyevent", String.valueOf(keyCode)});
             } catch (Exception e) { /* best effort */ }
+        }
+
+        @JavascriptInterface
+        public void printHtml(final String html) {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    WebView printView = new WebView(KioskActivity.this);
+                    printView.getSettings().setJavaScriptEnabled(false);
+                    printView.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public void onPageFinished(WebView view, String url) {
+                            PrintManager pm = (PrintManager) getSystemService(PRINT_SERVICE);
+                            PrintDocumentAdapter adapter = view.createPrintDocumentAdapter("GroceryList");
+                            PrintAttributes.Builder b = new PrintAttributes.Builder();
+                            b.setMediaSize(PrintAttributes.MediaSize.NA_LETTER);
+                            pm.print("Grocery List", adapter, b.build());
+                        }
+                    });
+                    printView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void printGrocery() {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    webView.evaluateJavascript("printGroceryList()", null);
+                }
+            });
         }
     }
 
