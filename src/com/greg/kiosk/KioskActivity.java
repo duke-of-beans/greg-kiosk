@@ -17,9 +17,35 @@ import android.print.PrintManager;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.webkit.PermissionRequest;
+import android.os.Handler;
+import android.os.Looper;
+import android.graphics.Color;
 
 public class KioskActivity extends Activity {
     private WebView webView;
+    private View dimOverlay;
+    private Handler dimHandler = new Handler(Looper.getMainLooper());
+    private static final long DIM_DELAY_MS = 120000; // 2 minutes of inactivity
+    private static final long FADE_DURATION_MS = 3000; // 3 second fade
+
+    private Runnable dimRunnable = new Runnable() {
+        public void run() {
+            if (dimOverlay != null) {
+                dimOverlay.animate()
+                    .alpha(0.85f) // 85% black — not fully off, Greg is still faintly visible
+                    .setDuration(FADE_DURATION_MS)
+                    .start();
+            }
+        }
+    };
+
+    private void resetDimTimer() {
+        if (dimOverlay != null) {
+            dimOverlay.animate().alpha(0f).setDuration(500).start();
+        }
+        dimHandler.removeCallbacks(dimRunnable);
+        dimHandler.postDelayed(dimRunnable, DIM_DELAY_MS);
+    }
 
     public class GregBridge {
         @JavascriptInterface
@@ -134,7 +160,23 @@ public class KioskActivity extends Activity {
         }
 
         webView = new WebView(this);
-        setContentView(webView);
+        
+        // Dim overlay — sits on top of WebView, fades to near-black on inactivity
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame.addView(webView, new android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+        
+        dimOverlay = new View(this);
+        dimOverlay.setBackgroundColor(Color.BLACK);
+        dimOverlay.setAlpha(0f);
+        dimOverlay.setClickable(false); // Touch passes through to WebView
+        frame.addView(dimOverlay, new android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+        
+        setContentView(frame);
+        resetDimTimer();
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -213,5 +255,11 @@ public class KioskActivity extends Activity {
         if (webView.canGoBack()) {
             webView.goBack();
         }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        resetDimTimer();
+        return super.dispatchTouchEvent(ev);
     }
 }
