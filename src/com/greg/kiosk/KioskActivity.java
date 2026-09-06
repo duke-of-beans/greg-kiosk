@@ -31,8 +31,9 @@ public class KioskActivity extends Activity {
     private Runnable dimRunnable = new Runnable() {
         public void run() {
             if (dimOverlay != null) {
+                // Fade to full black — Greg's face departs gracefully
                 dimOverlay.animate()
-                    .alpha(0.85f) // 85% black — not fully off, Greg is still faintly visible
+                    .alpha(1.0f) // Full black — Greg is asleep
                     .setDuration(FADE_DURATION_MS)
                     .start();
             }
@@ -41,7 +42,8 @@ public class KioskActivity extends Activity {
 
     private void resetDimTimer() {
         if (dimOverlay != null) {
-            dimOverlay.animate().alpha(0f).setDuration(500).start();
+            // Greg wakes — graceful arrival from darkness
+            dimOverlay.animate().alpha(0f).setDuration(800).start();
         }
         dimHandler.removeCallbacks(dimRunnable);
         dimHandler.postDelayed(dimRunnable, DIM_DELAY_MS);
