@@ -11,7 +11,7 @@ if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%\classes"
 
 echo === COMPILING ===
-%JAVAC% -source 1.8 -target 1.8 -classpath "%PLATFORM%" -d "%OUT%\classes" "%SRC%\src\com\greg\kiosk\KioskActivity.java" "%SRC%\src\com\greg\kiosk\BootReceiver.java" "%SRC%\src\com\greg\kiosk\FloatingHomeService.java" 2>&1
+%JAVAC% -source 1.8 -target 1.8 -classpath "%PLATFORM%" -d "%OUT%\classes" "%SRC%\src\com\greg\kiosk\KioskActivity.java" "%SRC%\src\com\greg\kiosk\BootReceiver.java" "%SRC%\src\com\greg\kiosk\FloatingHomeService.java" "%SRC%\src\com\greg\kiosk\WatchdogReceiver.java" 2>&1
 
 echo === LISTING CLASSES ===
 dir /b /s "%OUT%\classes\*.class"

@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
         android:label="Greg Wall"
         android:usesCleartextTraffic="true"
@@ -37,6 +38,12 @@
         <service
             android:name=".FloatingHomeService"
             android:exported="false" />
+        <receiver
+            android:name=".WatchdogReceiver"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":watchdog">
+        </receiver>
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"

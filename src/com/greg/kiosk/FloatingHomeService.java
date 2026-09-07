@@ -27,6 +27,16 @@ public class FloatingHomeService extends Service {
     public IBinder onBind(Intent intent) { return null; }
 
     @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // START_STICKY: if this service is killed (OOM under memory
+        // pressure — 2GB devices with a heavy foreground app can trigger
+        // this even for a foreground service), Android recreates it with
+        // a null intent once resources free up. This alone doesn't cover
+        // full-process kills though — see WatchdogReceiver for that case.
+        return START_STICKY;
+    }
+
+    @Override
     public void onCreate() {
         super.onCreate();
 
