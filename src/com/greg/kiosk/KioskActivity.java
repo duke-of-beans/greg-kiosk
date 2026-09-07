@@ -30,6 +30,24 @@ public class KioskActivity extends Activity {
     private static final long DIM_DELAY_MS = 330000; // 5.5 min — 30s after JS sleep (5min)
     private static final long FADE_DURATION_MS = 3000; // 3 second fade
 
+    // Lets FloatingHomeService (a separate Service, no WebView of its own) reach into the
+    // dashboard's JS card state. The dashboard is a single-page app with no navigation
+    // history, so webView.canGoBack() is always false — the system BACK key and a plain
+    // "go home" intent never touched showCard(activeCard) at all. A card someone opened
+    // (the weather widget, the grocery list) just sat there forever; tapping "back" looked
+    // like it did nothing, and long-pressing "home" left it open once the kiosk resurfaced.
+    public static KioskActivity instance;
+
+    public void dismissActiveCard() {
+        if (webView == null) return;
+        runOnUiThread(new Runnable() {
+            public void run() {
+                webView.evaluateJavascript(
+                    "(function(){ if (typeof showCard === 'function') showCard(null); })();", null);
+            }
+        });
+    }
+
     private Runnable dimRunnable = new Runnable() {
         public void run() {
             if (dimOverlay != null) {
@@ -146,11 +164,18 @@ public class KioskActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        instance = this;
 
-        // Force landscape globally
+        // Force landscape globally. USER_ROTATION is an enum of Surface.ROTATION_*
+        // (0=0°/landscape-native on this panel, 1=90°). A prior build set this to 1
+        // (portrait) by mistake, which is why enabling the system-wide rotation lock
+        // ever flipped the wall — 0 is the correct value for this landscape-native
+        // 1920x1080 panel; the kiosk's own screenOrientation="landscape" (manifest)
+        // covers itself regardless, this setting is what stops OTHER apps (KTLA)
+        // from rotating to portrait when they're in front.
         try {
             Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 0);
-            Settings.System.putInt(getContentResolver(), Settings.System.USER_ROTATION, 1);
+            Settings.System.putInt(getContentResolver(), Settings.System.USER_ROTATION, 0);
         } catch (Exception e) { /* needs WRITE_SETTINGS permission */ }
 
         // Fullscreen — hide status bar, BUT KEEP NAVIGATION BAR for gesture nav
@@ -374,9 +399,19 @@ public class KioskActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        // Single-page dashboard: canGoBack() is always false, so BACK used to do nothing
+        // visible at all. Dismiss whatever card is open first; only fall back to real
+        // WebView history navigation (never happens in practice here) if nothing was open.
+        dismissActiveCard();
         if (webView.canGoBack()) {
             webView.goBack();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (instance == this) instance = null;
     }
 
     @Override

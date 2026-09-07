@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fixes the "messy white screen" during transitions (going home, launching KTLA/Spotify).
+  Theme.NoTitleBar.Fullscreen's default windowBackground is a light system placeholder;
+  Android paints it as the "starting window" the instant an Activity begins transitioning,
+  before the real content has attached. Overriding it to the dashboard's own dark bg means
+  every transition, in either direction, shows dark, never a white flash.
+-->
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/kiosk_bg</item>
+    </style>
+</resources>

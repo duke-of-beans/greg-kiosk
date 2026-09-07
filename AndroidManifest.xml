@@ -16,7 +16,7 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:requestLegacyExternalStorage="true"
-        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        android:theme="@style/AppTheme">
         <activity
             android:name=".KioskActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"

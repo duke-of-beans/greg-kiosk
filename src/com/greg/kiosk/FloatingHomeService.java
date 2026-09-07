@@ -73,12 +73,16 @@ public class FloatingHomeService extends Service {
             }
         };
 
-        // TAP = back. The `input` binary needs the shell uid, so an app can't inject keys itself —
-        // ask Sentinel (which holds an ADB session to this device) and keep the local attempt as
-        // a best-effort fallback for devices Sentinel can't reach.
+        // TAP = back. Dismiss whatever JS-level card is open first (the actual bug: a
+        // plain BACK keyevent never touched showCard(), so an open weather/grocery card
+        // just stayed open forever — this looked like "back loops to the same widget").
+        // The native keyevent stays as a fallback for whatever's in the foreground when
+        // it isn't the kiosk (KTLA etc.) — ask Sentinel to route BACK to the Skylight, and
+        // also fire the local key locally in case Sentinel is unreachable.
         floatingView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                if (KioskActivity.instance != null) KioskActivity.instance.dismissActiveCard();
                 askSentinel("back");
                 try {
                     Runtime.getRuntime().exec(new String[]{"input", "keyevent", "4"});
@@ -86,13 +90,12 @@ public class FloatingHomeService extends Service {
             }
         });
 
-        // LONG PRESS = close the foreground app + go home (WG-40).
-        // `am force-stop` needs the shell uid and getRunningAppProcesses() only returns our own
-        // process since Android 7, so the previous in-app attempt silently did nothing and apps
-        // (KTLA, Spotify) stayed resident. Sentinel does the force-stop over ADB.
+        // LONG PRESS = close the foreground app + go home (WG-40), with any open card
+        // cleared so the wall comes back to a clean ambient state, not a stale card.
         floatingView.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
+                if (KioskActivity.instance != null) KioskActivity.instance.dismissActiveCard();
                 askSentinel("home");
                 Intent home = new Intent(Intent.ACTION_MAIN);
                 home.addCategory(Intent.CATEGORY_HOME);
