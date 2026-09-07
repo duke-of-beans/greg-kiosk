@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trust Sentinel's self-signed cert natively (res/raw/sentinel.crt, CN/SAN 192.168.2.11,
+  valid to 2036). Without this every fetch() from the Fire surface to https://192.168.2.11:9443
+  went through the SSL-error path; Chromium 138 retries those POSTs without their body, so
+  face-detect frames arrived empty (Sentinel 502 + broken pipe) and TTS never played —
+  no eye tracking, no voice. With a trusted anchor there is no error path at all.
+  Cleartext stays permitted: the Skylight loads http://localhost.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/sentinel" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

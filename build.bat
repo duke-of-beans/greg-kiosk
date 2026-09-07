@@ -24,8 +24,12 @@ for /r "%OUT%\classes" %%f in (*.class) do set "FILES=!FILES! "%%f""
 call "%BT%\d8.bat" --output "%OUT%" --lib "%PLATFORM%" !FILES! 2>&1
 endlocal
 
+echo === COMPILING RESOURCES ===
+REM res/xml/network_security_config.xml + res/raw/sentinel.crt (trusted Sentinel cert)
+"%BT%\aapt2.exe" compile --dir "%SRC%\res" -o "%OUT%\res.zip" 2>&1
+
 echo === PACKAGING ===
-"%BT%\aapt2.exe" link -o "%OUT%\greg-kiosk-unsigned.apk" --manifest "%SRC%\AndroidManifest.xml" -I "%PLATFORM%" --min-sdk-version 28 --target-sdk-version 28 2>&1
+"%BT%\aapt2.exe" link -o "%OUT%\greg-kiosk-unsigned.apk" --manifest "%SRC%\AndroidManifest.xml" -I "%PLATFORM%" --min-sdk-version 28 --target-sdk-version 28 --auto-add-overlay "%OUT%\res.zip" 2>&1
 
 echo === ADDING DEX ===
 cd /d "%OUT%"
