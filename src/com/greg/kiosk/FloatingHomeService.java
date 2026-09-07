@@ -73,39 +73,27 @@ public class FloatingHomeService extends Service {
             }
         };
 
-        // TAP = back
+        // TAP = back. The `input` binary needs the shell uid, so an app can't inject keys itself —
+        // ask Sentinel (which holds an ADB session to this device) and keep the local attempt as
+        // a best-effort fallback for devices Sentinel can't reach.
         floatingView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                askSentinel("back");
                 try {
                     Runtime.getRuntime().exec(new String[]{"input", "keyevent", "4"});
                 } catch (Exception e) {}
             }
         });
 
-        // LONG PRESS = kill foreground app + go home
+        // LONG PRESS = close the foreground app + go home (WG-40).
+        // `am force-stop` needs the shell uid and getRunningAppProcesses() only returns our own
+        // process since Android 7, so the previous in-app attempt silently did nothing and apps
+        // (KTLA, Spotify) stayed resident. Sentinel does the force-stop over ADB.
         floatingView.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
-                // Kill whatever app is in foreground (except greg-kiosk)
-                try {
-                    ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-                    List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
-                    if (procs != null) {
-                        for (ActivityManager.RunningAppProcessInfo proc : procs) {
-                            if (proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-                                && !proc.processName.equals("com.greg.kiosk")) {
-                                // Force stop via shell (works on rooted/system apps)
-                                Runtime.getRuntime().exec(new String[]{
-                                    "am", "force-stop", proc.processName
-                                });
-                                break;
-                            }
-                        }
-                    }
-                } catch (Exception e) { /* best effort */ }
-
-                // Go home
+                askSentinel("home");
                 Intent home = new Intent(Intent.ACTION_MAIN);
                 home.addCategory(Intent.CATEGORY_HOME);
                 home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -131,5 +119,26 @@ public class FloatingHomeService extends Service {
     public void onDestroy() {
         super.onDestroy();
         if (floatingView != null) windowManager.removeView(floatingView);
+    }
+
+    /** Fire-and-forget GET to Sentinel's surface server; the cert is a trust anchor via the app's
+     *  Network Security Config (res/raw/sentinel.crt), so a plain HttpsURLConnection works. */
+    private void askSentinel(final String action) {
+        new Thread(new Runnable() {
+            public void run() {
+                java.net.HttpURLConnection c = null;
+                try {
+                    java.net.URL u = new java.net.URL("https://192.168.2.11:9443/v1/skylight/nav?action=" + action);
+                    c = (java.net.HttpURLConnection) u.openConnection();
+                    c.setConnectTimeout(1500);
+                    c.setReadTimeout(8000);
+                    c.getResponseCode();
+                } catch (Exception e) {
+                    /* Sentinel unreachable — the local fallback already ran */
+                } finally {
+                    if (c != null) c.disconnect();
+                }
+            }
+        }).start();
     }
 }
