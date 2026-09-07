@@ -20,12 +20,14 @@ import android.webkit.PermissionRequest;
 import android.os.Handler;
 import android.os.Looper;
 import android.graphics.Color;
+import android.Manifest;
+import android.content.pm.PackageManager;
 
 public class KioskActivity extends Activity {
     private WebView webView;
     private View dimOverlay;
     private Handler dimHandler = new Handler(Looper.getMainLooper());
-    private static final long DIM_DELAY_MS = 120000; // 2 minutes of inactivity
+    private static final long DIM_DELAY_MS = 330000; // 5.5 min — 30s after JS sleep (5min)
     private static final long FADE_DURATION_MS = 3000; // 3 second fade
 
     private Runnable dimRunnable = new Runnable() {
@@ -50,6 +52,12 @@ public class KioskActivity extends Activity {
     }
 
     public class GregBridge {
+        @JavascriptInterface
+        public void resetDim() {
+            // Called by JS skylight schedule to keep APK overlay clear during awake hours
+            runOnUiThread(new Runnable() { public void run() { resetDimTimer(); } });
+        }
+
         @JavascriptInterface
         public void launchApp(String packageName) {
             Intent intent = getPackageManager().getLaunchIntentForPackage(packageName);
@@ -157,6 +165,92 @@ public class KioskActivity extends Activity {
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         // Full immersive — no nav bar. Swipe from bottom edge to temporarily reveal.
 
+        // Camera/mic permissions are granted at install time via
+        // `adb install -g` (or `pm grant` post-install), never at runtime.
+        // A runtime requestPermissions() call here would show a system
+        // dialog that blocks unattended boot forever — nobody is present
+        // to tap "Allow" after a headless reboot. checkSelfPermission()
+        // can also transiently report DENIED in the first seconds after
+        // BOOT_COMPLETED even when the grant is persisted, so we only log,
+        // never prompt.
+        for (String p : new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}) {
+            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                android.util.Log.w("greg-kiosk", "Permission not granted: " + p + " — reinstall with 'adb install -g' or 'pm grant'");
+            }
+        }
+
+        // ── Persistent debloat: kill Amazon services on every launch ──────
+        // These services respawn after reboot and eat 300+ MB of RAM on a
+        // 2GB device. force-stop them here so Greg gets the memory instead.
+        // Safe: uses am force-stop (no root required), services simply stop.
+        new Thread(new Runnable() {
+            public void run() {
+                String[] bloat = {
+                    "com.amazon.kindle.unifiedSearch",
+                    "com.amazon.client.metrics",
+                    "com.amazon.device.messaging",
+                    "com.amazon.tcomm",
+                    "com.amazon.imp",
+                    "com.amazon.device.software.ota",
+                    "com.amazon.whisperlink.core.android",
+                    "com.amazon.sync.service",
+                    "com.amazon.sync.provider.ipc",
+                    "com.amazon.diode",
+                    "com.here.odnp.service",
+                    "com.amazon.identity.auth.device.authorization",
+                    "com.amazon.device.backup",
+                    "com.amazon.securitysyncclient",
+                    "com.amazon.dp.contacts",
+                    "com.amazon.dp.fbcontacts",
+                    "amazon.speech.sim",
+                    "amazon.speech.davs.davcservice",
+                    "com.amazon.fireos.cirruscloud",
+                    "com.amazon.kindle",
+                    "com.amazon.photos",
+                    "com.amazon.avod",
+                    "com.amazon.venezia",
+                    "com.amazon.windowshop",
+                    "com.amazon.cloud9",
+                    "com.amazon.mp3",
+                    "com.amazon.dee.app",
+                    "com.amazon.device.metrics",
+                    "com.amazon.device.logmanager",
+                    "com.amazon.device.crashmanager",
+                    "com.amazon.wirelessmetrics.service",
+                    "jp.co.omronsoft.iwnnime.mlaz",
+                    "com.amazon.firespotlight",
+                    "com.amazon.weather",
+                    "com.amazon.wallpaper",
+                    "com.amazon.kindle.starsight",
+                    "com.amazon.ods.kindleconnect",
+                    "com.amazon.csapp",
+                    "com.amazon.cardinal",
+                    "com.amazon.hedwig",
+                    "com.amazon.ags.app",
+                    "com.amazon.device.sale.service",
+                    "com.amazon.parentalcontrols",
+                    "com.amazon.recess",
+                    "com.amazon.tahoe",
+                    "com.amazon.webapp",
+                    "com.amazon.media.session.monitor",
+                };
+                for (String pkg : bloat) {
+                    try {
+                        Runtime.getRuntime().exec(new String[]{"am", "force-stop", pkg}).waitFor();
+                    } catch (Exception e) { /* best effort */ }
+                }
+                // Also set background process limit and disable animations
+                try {
+                    Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "background_process_limit", "2"}).waitFor();
+                    Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "window_animation_scale", "0"}).waitFor();
+                    Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "transition_animation_scale", "0"}).waitFor();
+                    Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "animator_duration_scale", "0"}).waitFor();
+                    Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "always_finish_activities", "1"}).waitFor();
+                    Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "policy_control", "immersive.full=*"}).waitFor();
+                } catch (Exception e) { /* best effort */ }
+            }
+        }).start();
+
         // Start floating home button overlay as foreground service
         if (Settings.canDrawOverlays(this)) {
             Intent svc = new Intent(this, FloatingHomeService.class);
@@ -164,6 +258,9 @@ public class KioskActivity extends Activity {
         }
 
         webView = new WebView(this);
+        WebView.setWebContentsDebuggingEnabled(true);
+        webView.clearCache(true);
+        webView.clearHistory();
         
         // Dim overlay — sits on top of WebView, fades to near-black on inactivity
         android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
@@ -188,6 +285,8 @@ public class KioskActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         webView.addJavascriptInterface(new GregBridge(), "Greg");
 
@@ -197,6 +296,19 @@ public class KioskActivity extends Activity {
                 view.postDelayed(new Runnable() {
                     public void run() { view.reload(); }
                 }, 2000);
+            }
+            @Override
+            public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) {
+                // Accept self-signed cert for Sentinel LAN IP (192.168.2.11).
+                // We control both the cert and the server. This enables HTTPS
+                // for getUserMedia (camera requires secure context) while keeping
+                // face detection on the LAN (11ms vs 200ms proxy chain).
+                String url = error.getUrl();
+                if (url != null && url.contains("192.168.2.")) {
+                    handler.proceed();
+                } else {
+                    handler.cancel();
+                }
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
@@ -223,8 +335,12 @@ public class KioskActivity extends Activity {
             url = intent.getData().toString();
         }
 
+        // Force cache bust with timestamp
+        String cacheBust = "?t=" + System.currentTimeMillis();
         if (url != null && !url.startsWith("file")) {
-            webView.loadUrl(url);
+            // Strip any existing query params and add cache bust
+            String cleanUrl = url.contains("?") ? url.substring(0, url.indexOf("?")) : url;
+            webView.loadUrl(cleanUrl + cacheBust);
         } else {
             try {
                 java.io.File f = new java.io.File("/sdcard/dashboard.html");
