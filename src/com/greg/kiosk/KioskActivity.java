@@ -20,6 +20,10 @@ import android.webkit.PermissionRequest;
 import android.os.Handler;
 import android.os.Looper;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.BitmapDrawable;
 import android.Manifest;
 import android.content.pm.PackageManager;
 
@@ -159,6 +163,40 @@ public class KioskActivity extends Activity {
                 }
             });
         }
+
+        @JavascriptInterface
+        public String getAppIcon(String packageName) {
+            try {
+                Drawable d = getPackageManager().getApplicationIcon(packageName);
+                Bitmap bmp;
+                if (d instanceof BitmapDrawable) {
+                    bmp = ((BitmapDrawable) d).getBitmap();
+                } else {
+                    int w = d.getIntrinsicWidth() > 0 ? d.getIntrinsicWidth() : 96;
+                    int h = d.getIntrinsicHeight() > 0 ? d.getIntrinsicHeight() : 96;
+                    bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    Canvas canvas = new Canvas(bmp);
+                    d.setBounds(0, 0, w, h);
+                    d.draw(canvas);
+                }
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, 128, 128, true);
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.PNG, 90, baos);
+                return android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public String getAppLabel(String packageName) {
+            try {
+                return getPackageManager().getApplicationLabel(
+                    getPackageManager().getApplicationInfo(packageName, 0)).toString();
+            } catch (Exception e) {
+                return packageName;
+            }
+        }
     }
 
     @Override
@@ -166,17 +204,9 @@ public class KioskActivity extends Activity {
         super.onCreate(savedInstanceState);
         instance = this;
 
-        // Force landscape globally. USER_ROTATION is an enum of Surface.ROTATION_*
-        // (0=0°/landscape-native on this panel, 1=90°). A prior build set this to 1
-        // (portrait) by mistake, which is why enabling the system-wide rotation lock
-        // ever flipped the wall — 0 is the correct value for this landscape-native
-        // 1920x1080 panel; the kiosk's own screenOrientation="landscape" (manifest)
-        // covers itself regardless, this setting is what stops OTHER apps (KTLA)
-        // from rotating to portrait when they're in front.
-        try {
-            Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 0);
-            Settings.System.putInt(getContentResolver(), Settings.System.USER_ROTATION, 0);
-        } catch (Exception e) { /* needs WRITE_SETTINGS permission */ }
+        // Orientation is now controlled by each HTML page (viewport meta + CSS),
+        // not the kiosk APK. Skylight dashboard forces landscape via viewport;
+        // phone pages use responsive portrait. No global rotation override.
 
         // Fullscreen — hide status bar, BUT KEEP NAVIGATION BAR for gesture nav
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -272,6 +302,8 @@ public class KioskActivity extends Activity {
                     Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "animator_duration_scale", "0"}).waitFor();
                     Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "always_finish_activities", "1"}).waitFor();
                     Runtime.getRuntime().exec(new String[]{"settings", "put", "global", "policy_control", "immersive.full=*"}).waitFor();
+                    // Block notification shade pull-down (kid device lockdown)
+                    Runtime.getRuntime().exec(new String[]{"cmd", "statusbar", "send-disable-flag", "statusbar-expansion"}).waitFor();
                 } catch (Exception e) { /* best effort */ }
             }
         }).start();
@@ -312,6 +344,7 @@ public class KioskActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setAllowUniversalAccessFromFileURLs(true);  // file:// → https:// fetch for Supabase
 
         webView.addJavascriptInterface(new GregBridge(), "Greg");
 
@@ -374,7 +407,7 @@ public class KioskActivity extends Activity {
                 fis.read(bytes);
                 fis.close();
                 String html = new String(bytes, "UTF-8");
-                webView.loadDataWithBaseURL("http://localhost/", html, "text/html", "UTF-8", null);
+                webView.loadDataWithBaseURL("file:///sdcard/", html, "text/html", "UTF-8", null);
             } catch (Exception e) {
                 webView.postDelayed(new Runnable() {
                     public void run() { webView.loadUrl("http://127.0.0.1:8080/dashboard.html"); }
