@@ -351,8 +351,12 @@ public class KioskActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                // Re-run the real load path (loadDashboard()), not view.reload() --
+                // reload() cannot properly re-fetch content that was loaded via
+                // loadDataWithBaseURL(), so it was leaving the WebView stuck on
+                // "webpage not available" instead of recovering.
                 view.postDelayed(new Runnable() {
-                    public void run() { view.reload(); }
+                    public void run() { loadDashboard(); }
                 }, 2000);
             }
             @Override
@@ -387,6 +391,19 @@ public class KioskActivity extends Activity {
             });
         } catch (Exception e) { /* best effort */ }
 
+        loadDashboard();
+    }
+
+    // Loads the dashboard content, either from the launch intent's URL (Fire's
+    // face URL) or from the local /sdcard/dashboard.html file (phones, Skylight).
+    // Extracted from onCreate() so onReceivedError() can call the SAME logic to
+    // recover -- WebView.reload() does not work correctly on content loaded via
+    // loadDataWithBaseURL() (there is no real backing URL for it to re-fetch), so
+    // a plain reload() left the WebView stuck showing "webpage not available"
+    // indefinitely after any transient resource error. Found + fixed 2026-09-08
+    // after Dwight's phone was hanging on that error a few minutes into every
+    // boot -- reload() was retrying against a page that was never really there.
+    private void loadDashboard() {
         String url = null;
         Intent intent = getIntent();
         if (intent != null && intent.getData() != null) {
@@ -409,9 +426,7 @@ public class KioskActivity extends Activity {
                 String html = new String(bytes, "UTF-8");
                 webView.loadDataWithBaseURL("file:///sdcard/", html, "text/html", "UTF-8", null);
             } catch (Exception e) {
-                webView.postDelayed(new Runnable() {
-                    public void run() { webView.loadUrl("http://127.0.0.1:8080/dashboard.html"); }
-                }, 3000);
+                webView.loadUrl("http://127.0.0.1:8080/dashboard.html");
             }
         }
     }
