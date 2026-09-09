@@ -11,7 +11,16 @@ if exist "%OUT%" rmdir /s /q "%OUT%"
 mkdir "%OUT%\classes"
 
 echo === COMPILING ===
-%JAVAC% -source 1.8 -target 1.8 -classpath "%PLATFORM%" -d "%OUT%\classes" "%SRC%\src\com\greg\kiosk\KioskActivity.java" "%SRC%\src\com\greg\kiosk\BootReceiver.java" "%SRC%\src\com\greg\kiosk\FloatingHomeService.java" "%SRC%\src\com\greg\kiosk\WatchdogReceiver.java" 2>&1
+REM Glob every .java rather than listing them by hand. The old script named four
+REM files explicitly, so adding a class meant remembering to edit this line --
+REM and a forgotten entry fails as a confusing "cannot find symbol" rather than
+REM an obviously missing file.
+setlocal enabledelayedexpansion
+set "SRCS="
+for %%f in ("%SRC%\src\com\greg\kiosk\*.java") do set "SRCS=!SRCS! "%%f""
+echo Sources:!SRCS!
+%JAVAC% -source 1.8 -target 1.8 -classpath "%PLATFORM%" -d "%OUT%\classes" !SRCS! 2>&1
+endlocal
 
 echo === LISTING CLASSES ===
 dir /b /s "%OUT%\classes\*.class"

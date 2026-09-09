@@ -13,23 +13,27 @@ import android.os.SystemClock;
 public class BootReceiver extends BroadcastReceiver {
     private static final String FACE_URL = "https://192.168.2.11:9443/";
     private static final long WATCHDOG_INTERVAL_MS = 60000;
+    private static final String BUSYBOX = "/system/bin/busybox";
 
+    /** Delegates to DeviceProfile so Fire detection lives in exactly one place. */
     private boolean isFire() {
-        String model = Build.MODEL != null ? Build.MODEL.toUpperCase() : "";
-        String board = Build.BOARD != null ? Build.BOARD.toUpperCase() : "";
-        return model.contains("KFONWI") || model.contains("KFMUWI")
-            || board.contains("ONYX") || model.contains("FIRE");
+        return DeviceProfile.isFire();
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
-            // Start httpd for legacy fallback
-            try {
-                Runtime.getRuntime().exec(new String[]{
-                    "/system/bin/busybox", "httpd", "-p", "127.0.0.1:8080", "-h", "/sdcard"
-                });
-            } catch (Exception e) { /* best effort */ }
+            // Start httpd for legacy fallback -- only where busybox actually
+            // exists. OxygenOS has no busybox, so on the OnePlus phones this
+            // exec always threw silently while 127.0.0.1:8080 stayed wired in
+            // as a fallback URL that could never resolve.
+            if (new java.io.File(BUSYBOX).exists()) {
+                try {
+                    Runtime.getRuntime().exec(new String[]{
+                        BUSYBOX, "httpd", "-p", "127.0.0.1:8080", "-h", "/sdcard"
+                    });
+                } catch (Exception e) { /* best effort */ }
+            }
 
             // Kill Amazon launchers that fight for the foreground on Fire OS
             if (isFire()) {
@@ -81,6 +85,15 @@ public class BootReceiver extends BroadcastReceiver {
             try {
                 context.startForegroundService(new Intent(context, FloatingHomeService.class));
             } catch (Exception e) { /* best effort */ }
+
+            // Start the notification-shade blocker. On a kid device this is the
+            // thing standing between a curious two-year-old and the Settings
+            // gear, so it comes up at boot rather than waiting for the Activity.
+            if (ShadeGuardService.isEnabled(context)) {
+                try {
+                    context.startForegroundService(new Intent(context, ShadeGuardService.class));
+                } catch (Exception e) { /* best effort */ }
+            }
 
             // Watchdog alarm
             scheduleWatchdog(context);

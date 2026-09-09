@@ -17,8 +17,18 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/AppTheme">
+        <!--
+          launchMode="singleTask": without it the kiosk stacked duplicate
+          KioskActivity instances in the same task (observed 2026-09-09 on
+          Lilly's 6T: two live ActivityRecords, each holding its own WebView).
+          Every extra instance doubled memory and kept an orphan WebView alive,
+          and re-entry replayed the ROOT activity's launch intent, which is how
+          a stale http://127.0.0.1:8080 URL kept resurfacing. singleTask is also
+          what makes onNewIntent() the reliable delivery path for `am start -d`.
+        -->
         <activity
             android:name=".KioskActivity"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="unspecified"
             android:exported="true">
@@ -38,6 +48,9 @@
         </activity>
         <service
             android:name=".FloatingHomeService"
+            android:exported="false" />
+        <service
+            android:name=".ShadeGuardService"
             android:exported="false" />
         <receiver
             android:name=".WatchdogReceiver"
