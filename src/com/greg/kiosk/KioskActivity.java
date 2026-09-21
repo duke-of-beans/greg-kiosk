@@ -26,6 +26,13 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import java.util.ArrayList;
+import java.util.Locale;
 
 public class KioskActivity extends Activity {
     private WebView webView;
@@ -46,6 +53,16 @@ public class KioskActivity extends Activity {
     private static final int MAX_LOAD_RETRIES = 4;
     private int loadFailures = 0;
     private boolean forceLocalOnly = false;
+
+    // Voice assistant ("Ask Greg" by voice). SpeechRecognizer must be created/used
+    // on a thread with a Looper -- always the main thread here, reached via
+    // runOnUiThread() from GregBridge's JS-interface methods (those run on a
+    // WebView worker thread, not the UI thread). TextToSpeech has no such
+    // constraint but is kept on the same thread for simplicity.
+    private SpeechRecognizer speechRecognizer;
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private String pendingSpeech;
 
     // Lets FloatingHomeService (a separate Service, no WebView of its own) reach into the
     // dashboard's JS card state. The dashboard is a single-page app with no navigation
@@ -153,6 +170,47 @@ public class KioskActivity extends Activity {
         }
 
         @JavascriptInterface
+        public boolean isVoiceAvailable() {
+            try {
+                return SpeechRecognizer.isRecognitionAvailable(KioskActivity.this);
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public void startListening() {
+            runOnUiThread(new Runnable() {
+                public void run() { doStartListening(); }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopListening() {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    if (speechRecognizer != null) speechRecognizer.stopListening();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void speak(final String text) {
+            runOnUiThread(new Runnable() {
+                public void run() { doSpeak(text); }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopSpeaking() {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    if (tts != null) tts.stop();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void printHtml(final String html) {
             runOnUiThread(new Runnable() {
                 public void run() {
@@ -215,6 +273,130 @@ public class KioskActivity extends Activity {
                 return packageName;
             }
         }
+    }
+
+    /**
+     * Voice input. Headless — SpeechRecognizer.startListening(intent) never shows the
+     * system "Speak now" dialog (that only happens via startActivityForResult with
+     * RecognizerIntent); everything is driven through RecognitionListener callbacks and
+     * pushed to JS via window.onGregVoice*, matching the pattern dismissActiveCard()
+     * already uses to reach into the dashboard's JS state.
+     */
+    private void doStartListening() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            notifyJs("window.onGregVoiceError && window.onGregVoiceError('unavailable')");
+            return;
+        }
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            speechRecognizer.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle params) {
+                    notifyJs("window.onGregVoiceState && window.onGregVoiceState('listening')");
+                }
+                @Override public void onBeginningOfSpeech() {}
+                @Override public void onRmsChanged(float rmsdB) {}
+                @Override public void onBufferReceived(byte[] buffer) {}
+                @Override public void onEndOfSpeech() {
+                    notifyJs("window.onGregVoiceState && window.onGregVoiceState('thinking')");
+                }
+                @Override public void onError(int error) {
+                    notifyJs("window.onGregVoiceState && window.onGregVoiceState('idle')");
+                    notifyJs("window.onGregVoiceError && window.onGregVoiceError(" + error + ")");
+                }
+                @Override public void onResults(Bundle results) {
+                    ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (matches != null && !matches.isEmpty()) {
+                        notifyJs("window.onGregVoiceResult && window.onGregVoiceResult(" + jsonString(matches.get(0)) + ")");
+                    } else {
+                        notifyJs("window.onGregVoiceState && window.onGregVoiceState('idle')");
+                        notifyJs("window.onGregVoiceError && window.onGregVoiceError('noresult')");
+                    }
+                }
+                @Override public void onPartialResults(Bundle partialResults) {
+                    ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (matches != null && !matches.isEmpty()) {
+                        notifyJs("window.onGregVoicePartial && window.onGregVoicePartial(" + jsonString(matches.get(0)) + ")");
+                    }
+                }
+                @Override public void onEvent(int eventType, Bundle params) {}
+            });
+        }
+
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US.toString());
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        try {
+            speechRecognizer.startListening(intent);
+        } catch (Exception e) {
+            notifyJs("window.onGregVoiceError && window.onGregVoiceError('start_failed')");
+        }
+    }
+
+    private void doSpeak(String text) {
+        if (text == null || text.length() == 0) return;
+        if (speechRecognizer != null) speechRecognizer.cancel(); // don't let Greg hear himself
+        if (tts == null) {
+            tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+                @Override public void onInit(int status) {
+                    ttsReady = (status == TextToSpeech.SUCCESS);
+                    if (ttsReady) {
+                        tts.setLanguage(Locale.US);
+                        if (pendingSpeech != null) { speakNow(pendingSpeech); pendingSpeech = null; }
+                    } else {
+                        android.util.Log.w("greg-kiosk", "TTS init failed: " + status);
+                    }
+                }
+            });
+            pendingSpeech = text;
+            return;
+        }
+        if (!ttsReady) { pendingSpeech = text; return; }
+        speakNow(text);
+    }
+
+    private void speakNow(String text) {
+        if (text == null) return;
+        tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+            @Override public void onStart(String utteranceId) {
+                notifyJs("window.onGregVoiceState && window.onGregVoiceState('speaking')");
+            }
+            @Override public void onDone(String utteranceId) {
+                notifyJs("window.onGregVoiceState && window.onGregVoiceState('idle')");
+            }
+            @Override public void onError(String utteranceId) {
+                notifyJs("window.onGregVoiceState && window.onGregVoiceState('idle')");
+            }
+        });
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "greg_utt_" + System.currentTimeMillis());
+    }
+
+    private void notifyJs(final String jsExpr) {
+        if (webView == null) return;
+        runOnUiThread(new Runnable() {
+            public void run() { webView.evaluateJavascript(jsExpr, null); }
+        });
+    }
+
+    /** Minimal JSON string escaper for embedding recognized speech into an evaluateJavascript() call. */
+    private String jsonString(String s) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format(Locale.US, "\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        sb.append("\"");
+        return sb.toString();
     }
 
     @Override
@@ -649,6 +831,8 @@ public class KioskActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (instance == this) instance = null;
+        if (speechRecognizer != null) { speechRecognizer.destroy(); speechRecognizer = null; }
+        if (tts != null) { tts.shutdown(); tts = null; }
     }
 
     @Override
