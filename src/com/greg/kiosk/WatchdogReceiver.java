@@ -9,8 +9,8 @@ import java.util.List;
 /**
  * WatchdogReceiver — runs in a SEPARATE PROCESS (android:process=":watchdog"
  * in the manifest) so it survives even if the main greg-kiosk process
- * (KioskActivity + FloatingHomeService + ShadeGuardService) gets OOM-killed
- * under memory pressure.
+ * (KioskActivity + FloatingHomeService + ShadeGuardService + WakeWordService)
+ * gets OOM-killed under memory pressure.
  *
  * Root cause this fixes (found 2026-09-07): launching a heavy app
  * (KTLA+, Maps, Pluto, YouTube via SmartTube) on the 2GB Skylight tablet
@@ -23,6 +23,10 @@ import java.util.List;
  * 2026-09-09: extended to cover ShadeGuardService. The shade guard is the
  * only thing keeping the notification drawer (and therefore Settings) away
  * from a kid, so it matters more than the home button that it comes back.
+ *
+ * 2026-09-20: extended to cover WakeWordService — same logic applies to
+ * "Hey Greg" always listening; a silently-dead wake word looks like it
+ * simply stopped working, which is worse than an obvious crash.
  *
  * Fired by a repeating AlarmManager alarm registered in BootReceiver.
  */
@@ -38,6 +42,8 @@ public class WatchdogReceiver extends BroadcastReceiver {
         if (ShadeGuardService.isEnabled(context)) {
             revive(context, ShadeGuardService.class);
         }
+
+        revive(context, WakeWordService.class);
     }
 
     /**

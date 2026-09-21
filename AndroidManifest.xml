@@ -52,6 +52,9 @@
         <service
             android:name=".ShadeGuardService"
             android:exported="false" />
+        <service
+            android:name=".WakeWordService"
+            android:exported="false" />
         <receiver
             android:name=".WatchdogReceiver"
             android:enabled="true"

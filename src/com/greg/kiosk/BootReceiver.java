@@ -95,6 +95,13 @@ public class BootReceiver extends BroadcastReceiver {
                 } catch (Exception e) { /* best effort */ }
             }
 
+            // Start the "Hey Greg" wake-word listener — works anywhere on the
+            // phone, not just inside the kiosk WebView, so it starts at boot
+            // like the other always-on services.
+            try {
+                context.startForegroundService(new Intent(context, WakeWordService.class));
+            } catch (Exception e) { /* best effort */ }
+
             // Watchdog alarm
             scheduleWatchdog(context);
         }
