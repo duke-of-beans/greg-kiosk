@@ -264,6 +264,31 @@ public class KioskActivity extends Activity {
             }
         }
 
+
+        @JavascriptInterface
+        public boolean adminExit(String pin) {
+            if (!"4281".equals(pin)) return false;
+            // Stop kiosk services
+            stopService(new Intent(KioskActivity.this, FloatingHomeService.class));
+            // Re-enable Settings so admin can access it
+            try { Runtime.getRuntime().exec(new String[]{"pm", "enable", "com.android.settings"}).waitFor(); } catch (Exception e) {}
+            stopService(new Intent(KioskActivity.this, ShadeGuardService.class));
+            // Clear preferred home so Android stops auto-launching kiosk
+            getPackageManager().clearPackagePreferredActivities(getPackageName());
+            // Launch stock OnePlus launcher
+            Intent stock = new Intent(Intent.ACTION_MAIN);
+            stock.addCategory(Intent.CATEGORY_HOME);
+            stock.setPackage("net.oneplus.launcher");
+            stock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try { startActivity(stock); } catch (Exception e) {
+                // Fallback: generic home intent (triggers launcher picker)
+                stock.setPackage(null);
+                startActivity(stock);
+            }
+            finish();
+            return true;
+        }
+
         @JavascriptInterface
         public String getAppLabel(String packageName) {
             try {

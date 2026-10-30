@@ -55,6 +55,17 @@
         <service
             android:name=".WakeWordService"
             android:exported="false" />
+        <service
+            android:name=".ShadeBlockAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/shade_block_config" />
+        </service>
         <receiver
             android:name=".WatchdogReceiver"
             android:enabled="true"
